@@ -3939,6 +3939,18 @@ static struct task_struct *find_process_by_pid(pid_t pid)
 	return pid ? find_task_by_vpid(pid) : current;
 }
 
+/**
+ * get_proxing - find who task is proxing for.
+ * @task: the task in question.
+ */
+static inline struct task_struct* get_proxying(struct task_struct* task)
+{
+	while (task_is_proxying(task))
+		task = __get_proxying(task);
+
+	return task;
+}
+
 /*
  * This function initializes the sched_dl_entity of a newly becoming
  * SCHED_DEADLINE task.
