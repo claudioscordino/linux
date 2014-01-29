@@ -2137,6 +2137,26 @@ out:
  */
 int wake_up_process(struct task_struct *p)
 {
+	struct task_struct *proxy;
+	int ret = 0;
+
+	WARN_ON(task_is_stopped_or_traced(p));
+
+	/**
+	 * All proxies for p must be woken up before p is actually woken
+	 * up.
+	 */
+	list_for_each_entry(proxy, &p->proxies, proxies) {
+		if (!proxy->on_rq)
+			ret = try_to_wake_up(proxy, TASK_NORMAL, 0);
+
+	/**
+	 * TODO what happens if some task succeed and some fail?
+	 */
+		if (ret)
+			return ret;
+	}
+
 	return try_to_wake_up(p, TASK_NORMAL, 0);
 }
 EXPORT_SYMBOL(wake_up_process);
@@ -3321,6 +3341,18 @@ again:
 	BUG();
 }
 
+/**
+ * get_proxying - find who task is proxing for.
+ * @task: the task in question.
+ */
+static inline struct task_struct* get_proxying(struct task_struct* task)
+{
+	while (task_is_proxying(task))
+		task = __get_proxying(task);
+
+	return task;
+}
+
 /*
  * __schedule() is the main scheduler function.
  *
@@ -3424,7 +3456,22 @@ static void __sched notrace __schedule(bool preempt)
 	if (task_on_rq_queued(prev))
 		update_rq_clock(rq);
 
+proxy_retry:
 	next = pick_next_task(rq, prev, &rf);
+	if (task_is_proxying(next)) {
+		struct task_struct *tp;
+
+		/* next is proxying tp. If tp is sleeping we have to dequeue
+		 * all its proxies now, since we didn't do it when tp went to
+		 * sleep.
+		 */
+		tp = get_proxying(next);
+		if (!tp->on_rq) {
+			deactivate_task(rq, next, DEQUEUE_SLEEP);
+			next->on_rq = 0;
+			goto proxy_retry;
+		}
+	}
 	clear_tsk_need_resched(prev);
 	clear_preempt_need_resched();
 
@@ -3937,18 +3984,6 @@ struct task_struct *idle_task(int cpu)
 static struct task_struct *find_process_by_pid(pid_t pid)
 {
 	return pid ? find_task_by_vpid(pid) : current;
-}
-
-/**
- * get_proxing - find who task is proxing for.
- * @task: the task in question.
- */
-static inline struct task_struct* get_proxying(struct task_struct* task)
-{
-	while (task_is_proxying(task))
-		task = __get_proxying(task);
-
-	return task;
 }
 
 /*
