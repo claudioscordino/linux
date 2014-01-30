@@ -482,6 +482,7 @@ struct wake_q_node {
 
 #define task_is_proxied(task)	((task)->proxied_by != NULL)
 #define task_is_proxying(task)	((task)->proxying_for != NULL)
+#define task_has_proxies(task)	(!list_empty(&(task)->proxies))
 #define get_proxied_task(task)	(task_is_proxied(task) ? (task)->proxied_by : task)
 #define __get_proxying(task)	((task)->proxying_for)
 
@@ -489,6 +490,7 @@ extern void set_proxy_execution(struct task_struct *task,
 				struct task_struct *proxy);
 extern void clear_proxy_execution(struct task_struct *task,
 				  struct task_struct *next_proxied);
+extern void pick_task_proxy(struct task_struct *task);
 
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
