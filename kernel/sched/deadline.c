@@ -414,9 +414,6 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	trace_printk("task %d's server (proxying %d) replenished\n",
 		     dl_task_of(dl_se)->pid,
 		     get_proxied_task(dl_task_of(dl_se))->pid);
-	printk("task %d's server (proxying %d) replenished\n",
-	       dl_task_of(dl_se)->pid,
-	       get_proxied_task(dl_task_of(dl_se))->pid);
 
 	if (dl_se->dl_yielded)
 		dl_se->dl_yielded = 0;
@@ -577,7 +574,6 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 						     struct sched_dl_entity,
 						     dl_timer);
 	struct task_struct *p = dl_task_of(dl_se);
-	struct task_struct *proxy = get_proxied_task(p);
 	struct rq_flags rf;
 	struct rq *rq;
 
@@ -650,8 +646,6 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	}
 #endif
 
-	trace_printk("task %d's se (proxying %d) replenished\n", p->pid,
-		     proxy->pid);
 	enqueue_task_dl(rq, p, ENQUEUE_REPLENISH);
 	if (dl_task(rq->curr))
 		check_preempt_curr_dl(rq, p, 0);
@@ -788,12 +782,10 @@ throttle:
 		dl_se->dl_throttled = 1;
 
 		trace_printk("task %d's se exceeded its runtime ", proxy->pid);
-		printk("task %d's se exceeded its runtime ", proxy->pid);
 		if (task_is_proxied(curr)) {
 			trace_printk("while proxying %d\n", curr->pid);
-			printk("while proxying %d\n", curr->pid);
-			printk("deactivating %d's proxy %d (thottling)\n",
-			       curr->pid, proxy->pid);
+			trace_printk("deactivating %d's proxy %d (thottling)\n",
+ 			       curr->pid, proxy->pid);
 			//deactivate_task(task_rq(proxy), proxy, 0);
 			proxy->on_rq = 0;
 		}
@@ -1270,10 +1262,11 @@ static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 	if (task_is_proxied(p)) {
 		struct task_struct *proxy = get_proxied_task(p);
 
-		printk("deactivating %d's proxy %d (preempt)\n", p->pid,
+		trace_printk("deactivating %d's proxy %d (preempt)\n", p->pid,
 			proxy->pid);
 		deactivate_task(task_rq(proxy), proxy, 0);
 		proxy->on_rq = 0;
+		p->proxied_by = NULL;
 	}
 
 	/*
