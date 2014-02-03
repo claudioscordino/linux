@@ -1283,7 +1283,8 @@ static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 	 * the fact that p's original server could start executing in some
 	 * other CPU? Do we have to check this beforehand?
 	 */
-	if (on_dl_rq(&p->dl) && p->nr_cpus_allowed > 1)
+	if (on_dl_rq(&p->dl) && p->nr_cpus_allowed > 1 &&
+	    (!task_has_proxies(p) && !task_is_proxying(p)))
 		enqueue_pushable_dl_task(rq, p);
 }
 
