@@ -3375,7 +3375,6 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 	trace_printk("adding %d (dl %llu) as proxy for task %d\n", proxy->pid,
 		     proxy->dl.deadline, task->pid);
 	proxy->proxying_for = task;
-	proxy->dl.busy_runtime = proxy->dl.runtime;
 
 	actual_proxied = get_proxying(task);
 	trace_printk("task %d is actually proxying task %d\n", task->pid,

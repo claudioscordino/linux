@@ -1081,6 +1081,15 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	struct sched_dl_entity *dl_se = &task->dl;
 
 	/*
+	 * MBWI
+	 * If task, that is proxying p, has to be enqueued in the rq (p
+	 * will execute in task's server), we must first dequeue it from
+	 * the proxies rb_tree.
+	 */
+	if (task_is_proxying(task))
+		dequeue_proxy_dl_task(rq, task);
+
+	/*
 	 * If p is throttled, we do nothing. In fact, if it exhausted
 	 * its budget it needs a replenishment and, since it now is on
 	 * its rq, the bandwidth timer callback (which clearly has not
@@ -1103,6 +1112,24 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
 	dequeue_dl_entity(&p->dl);
 	dequeue_pushable_dl_task(rq, p);
+
+	/*
+	 * MBWI
+	 * If p is proxy of someone we have 2 cases:
+	 *
+	 *   - it just blocked on a mutex;
+	 *   - it was executing the lock owner, but it was preempted;
+	 *
+	 * in both cases we have to enqueue it back on the proxies rb_tree,
+	 * since the lock owner could have started executing on some other
+	 * CPU (in this case we probably have to consume p's busy_budget).
+	 * We also set the busy_runtime to be equal to p's runtime at this
+	 * instant of time.
+	 */
+	if (task_is_proxying(p)) {
+		enqueue_proxy_dl_task(rq, p);
+		p->dl.busy_runtime = p->dl.runtime;
+	}	
 }
 
 static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
