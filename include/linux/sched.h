@@ -433,6 +433,14 @@ struct sched_dl_entity {
 	unsigned int			flags;		/* Specifying the scheduler behaviour	*/
 
 	/*
+	 * MBWI
+	 * When a task is blocked on a mutex (potential proxy) we decrement
+	 * this fake runtime, as the task was busy executing. This helps
+	 * wasting as little budget as we can.
+	 */
+	s64 busy_runtime;
+
+	/*
 	 * Some bool flags:
 	 *
 	 * @dl_throttled tells if we exhausted the runtime. If so, the
