@@ -226,6 +226,61 @@ static DEFINE_PER_CPU(struct callback_head, dl_pull_head);
 static void push_dl_tasks(struct rq *);
 static void pull_dl_task(struct rq *);
 
+/*
+ * The list of proxies is an rb-tree with tasks ordered by deadline.
+ */
+static void enqueue_proxy_dl_task(struct rq *rq, struct task_struct *p)
+{
+	struct dl_rq *dl_rq = &rq->dl;
+	struct rb_node **link = &dl_rq->proxy_dl_tasks_root.rb_node;
+	struct rb_node *parent = NULL;
+	struct task_struct *entry;
+	int leftmost = 1;
+
+	BUG_ON(!RB_EMPTY_NODE(&p->proxy_dl_tasks));
+
+	while (*link) {
+		parent = *link;
+		entry = rb_entry(parent, struct task_struct,
+				 proxy_dl_tasks);
+		if (dl_entity_preempt(&p->dl, &entry->dl))
+			link = &parent->rb_left;
+		else {
+			link = &parent->rb_right;
+			leftmost = 0;
+		}
+	}
+
+	if (leftmost)
+		dl_rq->proxy_dl_tasks_leftmost = &p->proxy_dl_tasks;
+
+	rb_link_node(&p->proxy_dl_tasks, parent, link);
+	rb_insert_color(&p->proxy_dl_tasks, &dl_rq->proxy_dl_tasks_root);
+}
+
+static void dequeue_proxy_dl_task(struct rq *rq, struct task_struct *p)
+{
+	struct dl_rq *dl_rq = &rq->dl;
+
+	if (RB_EMPTY_NODE(&p->proxy_dl_tasks))
+		return;
+
+	if (dl_rq->proxy_dl_tasks_leftmost == &p->proxy_dl_tasks) {
+		struct rb_node *next_node;
+
+		next_node = rb_next(&p->proxy_dl_tasks);
+		dl_rq->proxy_dl_tasks_leftmost = next_node;
+	}
+
+	rb_erase(&p->proxy_dl_tasks, &dl_rq->proxy_dl_tasks_root);
+	RB_CLEAR_NODE(&p->proxy_dl_tasks);
+}
+
+static inline int has_proxy_dl_tasks(struct rq *rq)
+{
+	return !RB_EMPTY_ROOT(&rq->dl.proxy_dl_tasks_root);
+}
+
 static inline void queue_push_tasks(struct rq *rq)
 {
 	if (!has_pushable_dl_tasks(rq))
@@ -292,6 +347,16 @@ void dequeue_pushable_dl_task(struct rq *rq, struct task_struct *p)
 
 static inline
 void inc_dl_migration(struct sched_dl_entity *dl_se, struct dl_rq *dl_rq)
+{
+}
+
+static inline
+void enqueue_proxy_dl_task(struct rq *rq, struct task_struct *p)
+{
+}
+
+static inline
+void dequeue_proxy_dl_task(struct rq *rq, struct task_struct *p)
 {
 }
 
