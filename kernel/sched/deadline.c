@@ -80,6 +80,7 @@ void init_dl_rq(struct dl_rq *dl_rq)
 	dl_rq->dl_nr_migratory = 0;
 	dl_rq->overloaded = 0;
 	dl_rq->pushable_dl_tasks_root = RB_ROOT;
+	dl_rq->proxy_dl_tasks_root = RB_ROOT;
 #else
 	init_dl_bw(&dl_rq->dl_bw);
 #endif

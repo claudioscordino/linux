@@ -555,6 +555,19 @@ struct dl_rq {
 	 */
 	struct rb_root pushable_dl_tasks_root;
 	struct rb_node *pushable_dl_tasks_leftmost;
+
+	/*
+	 * MBWI
+	 * Tasks on this rq that can be proxy of someone else. When a
+	 * task blocks on a mutex becomes a proxy of the lock owner.
+	 * Proxies are kept in an rb-tree (there is one for each CPU),
+	 * ordered by tasks' deadlines, with caching of the leftmost
+	 * (earliest deadline) element. Budget of the leftmost element
+	 * is decremented at each scheduling tick, as if it was busy
+	 * executing.
+	 */
+	struct rb_root proxy_dl_tasks_root;
+	struct rb_node *proxy_dl_tasks_leftmost;
 #else
 	struct dl_bw dl_bw;
 #endif
