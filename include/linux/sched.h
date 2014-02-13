@@ -646,19 +646,6 @@ struct task_struct {
 	pid_t				pid;
 	pid_t				tgid;
 
-	/* Proxy Execution
-	 * @proxying_for: when this task is scheduled it actually puts on the CPU
-	 *                the pointed task
-	 * @proxied_by: this task is currently proxied by the pointed task
-	 * @proxies: this task can have more than one possible proxies, pick one
-	 *           from this list when deciding which one is the current
-	 */
-	struct task_struct *proxying_for;
-	struct task_struct *proxied_by;
-
-	struct list_head proxies;
-	struct list_head proxy_node;
-
 #ifdef CONFIG_CC_STACKPROTECTOR
 	/* Canary value for the -fstack-protector GCC feature: */
 	unsigned long			stack_canary;
@@ -824,6 +811,19 @@ struct task_struct {
 	struct rb_node			*pi_waiters_leftmost;
 	/* Deadlock detection and priority inheritance handling: */
 	struct rt_mutex_waiter		*pi_blocked_on;
+
+	/* Proxy Execution
+	 * @proxying_for: when this task is scheduled it actually puts on the CPU
+	 *                the pointed task
+	 * @proxied_by: this task is currently proxied by the pointed task
+	 * @proxies: this task can have more than one possible proxies, pick one
+	 *           from this list when deciding which one is the current
+	 */
+	struct task_struct *proxying_for;
+	struct task_struct *proxied_by;
+
+	struct list_head proxies;
+	struct list_head proxy_node;
 #endif
 
 #ifdef CONFIG_DEBUG_MUTEXES
