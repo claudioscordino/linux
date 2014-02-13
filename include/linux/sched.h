@@ -440,6 +440,14 @@ struct sched_dl_entity {
 	 */
 	s64 busy_runtime;
 
+	/* 
+	 * We need this to be able to know on which CPU a server is residing
+	 * (executing, queued or blocked). We can't use the variable on the
+	 * task_struct, since, when a task migrates, the "original CPU" is
+	 * lost. It gets updated by the push/pull mechanism only.
+	 */
+	int cpu;
+
 	/*
 	 * Some bool flags:
 	 *

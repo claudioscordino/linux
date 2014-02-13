@@ -978,17 +978,6 @@ static int task_blocks_on_rt_mutex(struct rt_mutex *lock,
 	waiter->lock = lock;
 	waiter->prio = task->prio;
 
-	/*
-	 * MBWI: task is added to owner's proxies list.
-	 * task becomes proxy only if it has a server (it is a -deadline
-	 * task).
-	 *
-	 * TODO what if task is !-deadline, but it has inherited from
-	 *      some -deadline task?
-	 */
-	if (dl_task(task))
-		set_proxy_execution(owner, task);
-
 	/* Get the top priority waiter on the lock */
 	if (rt_mutex_has_waiters(lock))
 		top_waiter = rt_mutex_top_waiter(lock);
@@ -1286,9 +1275,21 @@ rt_mutex_slowlock(struct rt_mutex *lock, int state,
 
 	ret = task_blocks_on_rt_mutex(lock, &waiter, current, chwalk);
 
-	if (likely(!ret))
+	if (likely(!ret)) {
+		/*
+		 * MBWI: task is added to owner's proxies list.
+		 * task becomes proxy only if it has a server (it is a -deadline
+		 * task).
+		 *
+		 * TODO what if task is !-deadline, but it has inherited from
+		 *      some -deadline task?
+		 */
+		if (dl_task(current))
+			set_proxy_execution(rt_mutex_owner(lock), current);
+
 		/* sleep on the mutex */
 		ret = __rt_mutex_slowlock(lock, state, timeout, &waiter);
+	}
 
 	if (unlikely(ret)) {
 		__set_current_state(TASK_RUNNING);

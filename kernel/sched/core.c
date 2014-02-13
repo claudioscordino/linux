@@ -2147,10 +2147,8 @@ int wake_up_process(struct task_struct *p)
 	 * up.
 	 */
 	list_for_each_entry(proxy, &p->proxies, proxy_node) {
-		if (!proxy->on_rq) {
-			trace_printk("waking up proxy %s\n", proxy->comm);
+		if (!proxy->on_rq)
 			ret = try_to_wake_up(proxy, TASK_NORMAL, 0);
-		}
 
 	/**
 	 * TODO what happens if some task succeed and some fail?
@@ -2442,6 +2440,7 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 #ifdef CONFIG_SMP
 	plist_node_init(&p->pushable_tasks, MAX_PRIO);
 	RB_CLEAR_NODE(&p->pushable_dl_tasks);
+	RB_CLEAR_NODE(&p->proxy_dl_tasks);
 #endif
 
 	put_cpu();
@@ -3372,19 +3371,13 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 {
 	struct task_struct *actual_proxied, *tpi, *tpi_h;
 
-	trace_printk("adding %d (dl %llu) as proxy for task %d\n", proxy->pid,
-		     proxy->dl.deadline, task->pid);
 	proxy->proxying_for = task;
-
 	actual_proxied = get_proxying(task);
-	trace_printk("task %d is actually proxying task %d\n", task->pid,
-	       actual_proxied->pid);
 
 	/*
 	 * proxy, and all its proxies, have to be new proxies for the head
 	 * of the chain.
 	 */
-	trace_printk("adding %d as proxy for %d\n", proxy->pid, actual_proxied->pid);
 	list_add(&proxy->proxy_node, &actual_proxied->proxies);
 	list_for_each_entry_safe(tpi, tpi_h, &proxy->proxies, proxy_node) {
 		list_move(&tpi->proxy_node, &actual_proxied->proxies);
@@ -3395,9 +3388,8 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 	 * replenishment, start executing task in new proxy's server.
 	 */
 	if (get_proxied_task(task)->dl.dl_throttled) {
-		trace_printk("task %d's current server is throttled!\n",
-			     task->pid);
-		raw_spin_lock(&task_rq(task)->lock);
+		unsigned long flags;
+		raw_spin_lock_irqsave(&task_rq(task)->lock, flags);
 		if (task_is_proxied(task)) {
 			struct task_struct *proxy = get_proxied_task(task);
 
@@ -3405,8 +3397,8 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 			proxy->on_rq = 0;
 			task->proxied_by = NULL;
 		}
+		raw_spin_unlock_irqrestore(&task_rq(task)->lock, flags);
 		pick_task_proxy(task);
-		raw_spin_unlock(&task_rq(task)->lock);
 	}
 }
 
@@ -3433,16 +3425,11 @@ void clear_proxy_execution(struct task_struct *task,
 
 	task->proxied_by = NULL;
 	next_proxied->proxying_for = NULL;
-	trace_printk("removing %d as proxy for %d\n", next_proxied->pid, task->pid);
 	list_del(&next_proxied->proxy_node);
 
-	trace_printk("moving %d's proxies list to %d\n", task->pid, 
-	       next_proxied->pid);
 	list_for_each_entry_safe(tpi, tpi_h, &task->proxies, proxy_node) {
 		tpi->proxying_for = next_proxied;
 		list_move(&tpi->proxy_node, &next_proxied->proxies);
-		trace_printk("%d moved to %d's proxies list\n", tpi->pid, 
-			next_proxied->pid);
 	}
 }
 
@@ -3455,7 +3442,17 @@ void clear_proxy_execution(struct task_struct *task,
 void pick_task_proxy(struct task_struct *task)
 {
 	struct task_struct *proxy;
+	int orig_cpu = task_cpu(task);
 
+	/*
+	 * We dequeue current task's entity, we pick a new one and we
+	 * activate it (or the original) below.
+	 */
+	if (task->on_rq) {
+		deactivate_task(task_rq(task), task, 0);
+		task->on_rq = 0;
+	}
+		
 	/*
 	 * Search best server among task's proxies.
 	 */
@@ -3469,36 +3466,48 @@ void pick_task_proxy(struct task_struct *task)
 	/*
 	 * Is it better than task's original server?
 	 */
-	if (dl_entity_preempt(&task->dl, &proxy->dl) && !(task->dl.dl_throttled)) 
-		task->proxied_by = NULL;
+	//if (dl_entity_preempt(&task->dl, &proxy->dl) && !(task->dl.dl_throttled)) 
+	//	task->proxied_by = NULL;
 
 	if (task_is_proxied(task)) {
-		trace_printk("proxy %d picked for task %d\n", proxy->pid,
-			     task->pid);
+		proxy = get_proxied_task(task);
+		BUG_ON(proxy == task);
 
+		/*
+		 * We need to have both locks (we already have task_rq).
+		 */
+		if (orig_cpu != proxy->dl.cpu)
+			double_lock_balance(cpu_rq(orig_cpu), cpu_rq(proxy->dl.cpu));
+
+		/*
+		 * We might have dropped orig_cpu lock.
+		 */
+		if (task_cpu(task) != orig_cpu || !task->on_rq)
+			goto skip;
+
+		if (orig_cpu != proxy->dl.cpu)
+			set_task_cpu(task, proxy->dl.cpu);
+ 
 		if (!proxy->on_rq) {
 			activate_task(task_rq(proxy), proxy, 0);
 			proxy->on_rq = 1;
 		}
-		/* resched_task(proxy); */
-		resched_curr(task_rq(proxy));
+skip:
+		if (orig_cpu != proxy->dl.cpu)
+			double_unlock_balance(cpu_rq(orig_cpu), cpu_rq(proxy->dl.cpu));
 	} else {
-		return;
-	}
+		if (!task->on_rq) {
+			/*
+			 * Task used to execute inside a proxy.
+			 * Let it run back inside its original server.
+			 */
+			if (task_cpu(task) != task->dl.cpu)
+				set_task_cpu(task, task->dl.cpu);
 
-	/*
-	 * We force a reschedule only if proxy is currently executing on its
-	 * CPU, otherwise we wait for the next scheduling event (since proxy
-	 * wouldn't be scheduled anyway).
-	 */
-#if 0
-	if (task_running(task_rq(proxy), proxy)) {
-/*
-		resched_task(proxy);
-*/
-		resched_curr(task_rq(proxy));
+			activate_task(task_rq(task), task, 0);
+			task->on_rq = 1;
+		}
 	}
-#endif
 }
 
 /*
@@ -3629,12 +3638,8 @@ proxy_retry:
 		 * parameters are used for actual scheduling (depending on the
 		 * scheduling class).
 		 */
-		if (task_is_proxied(tp) && next == get_proxied_task(tp)) {
-			trace_printk("%d selected for execution, but it is"
-				     " going to proxy for %d\n", next->pid,
-				     tp->pid);
+		if (task_is_proxied(tp) && next == get_proxied_task(tp))
 			next = tp;
-		}
 	}
 	clear_tsk_need_resched(prev);
 	clear_preempt_need_resched();
@@ -4168,6 +4173,9 @@ __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->dl_period = attr->sched_period ?: dl_se->dl_deadline;
 	dl_se->flags = attr->sched_flags;
 	dl_se->dl_bw = to_ratio(dl_se->dl_period, dl_se->dl_runtime);
+
+	dl_se->busy_runtime = 0;
+	dl_se->cpu = task_cpu(p);
 
 	/*
 	 * Changing the parameters of a task is 'tricky' and we're not doing
