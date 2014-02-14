@@ -3363,16 +3363,19 @@ inline struct task_struct* get_proxying(struct task_struct* task)
  * @task: the task that is going to be proxied.
  * @proxy: its new proxy.
  *
- * Locking: called with wait_lock held by task and pi_lock held by
- * proxy. Priority chain (and thus poxies list) can't be modified
- * and task can't disappear while adding new proxies to its list.
+ * Locking: called with interrupts disabled; wait_lock and proxy's pi_lock
+ * held by proxy. We have to acquire actual_proxies's pi_lock, as we are
+ * going to add proxy to its proxies list.
  */
 void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 {
 	struct task_struct *actual_proxied, *tpi, *tpi_h;
 
+
 	proxy->proxying_for = task;
 	actual_proxied = get_proxying(task);
+
+	raw_spin_lock(&actual_proxied->pi_lock);
 
 	/*
 	 * proxy, and all its proxies, have to be new proxies for the head
@@ -3386,20 +3389,23 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 	/*
 	 * task just got a new proxy. If task's current server is waiting for
 	 * replenishment, start executing task in new proxy's server.
+	 * TODO remove this, for now, as throttling is disabled...
 	 */
-	if (get_proxied_task(task)->dl.dl_throttled) {
-		unsigned long flags;
-		raw_spin_lock_irqsave(&task_rq(task)->lock, flags);
-		if (task_is_proxied(task)) {
-			struct task_struct *proxy = get_proxied_task(task);
+	//if (get_proxied_task(task)->dl.dl_throttled) {
+	//	unsigned long flags;
+	//	raw_spin_lock_irqsave(&task_rq(task)->lock, flags);
+	//	if (task_is_proxied(task)) {
+	//		struct task_struct *proxy = get_proxied_task(task);
 
-			deactivate_task(task_rq(proxy), proxy, 0);
-			proxy->on_rq = 0;
-			task->proxied_by = NULL;
-		}
-		raw_spin_unlock_irqrestore(&task_rq(task)->lock, flags);
-		pick_task_proxy(task);
-	}
+	//		deactivate_task(task_rq(proxy), proxy, 0);
+	//		proxy->on_rq = 0;
+	//		task->proxied_by = NULL;
+	//	}
+	//	raw_spin_unlock_irqrestore(&task_rq(task)->lock, flags);
+	//	pick_task_proxy(task);
+	//}
+
+	raw_spin_unlock(&actual_proxied->pi_lock);
 }
 
 /**
@@ -3408,8 +3414,8 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
  * @task: the task that is going to stop being proxied.
  * @next_proxies: who receives task's proxies list.
  *
- * Locking: called with task's pi_lock held (it is releasing a lock) and
- * while next_proxied is sleeping (what if he is woken up by a signal?).
+ * Locking: called with lock's wait_lock and task's pi_lock held (it is
+ * releasing a lock) and while next_proxied is sleeping.
  */
 void clear_proxy_execution(struct task_struct *task,
 			   struct task_struct *next_proxied)
