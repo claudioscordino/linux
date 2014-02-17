@@ -1272,7 +1272,7 @@ struct task_struct *
 pick_next_task_dl(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 {
 	struct sched_dl_entity *dl_se;
-	struct task_struct *p;
+	struct task_struct *p, *next;
 	struct dl_rq *dl_rq;
 
 	dl_rq = &rq->dl;
@@ -1312,7 +1312,8 @@ pick_next_task_dl(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	BUG_ON(!dl_se);
 
 	p = dl_task_of(dl_se);
-	p->se.exec_start = rq_clock_task(rq);
+	next = get_proxied_task(p);
+	next->se.exec_start = rq_clock_task(rq);
 
 	/* Running task will never be pushed. */
 	dequeue_pushable_dl_task(rq, p);
@@ -1322,7 +1323,7 @@ pick_next_task_dl(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 
 	queue_push_tasks(rq);
 
-	return p;
+	return next;
 }
 
 static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
