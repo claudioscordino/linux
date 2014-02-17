@@ -1097,18 +1097,21 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 	/*
 	 * MBWI
-	 * If p is proxy of someone we have 2 cases:
+	 * put_prev_task_dl can now cause a task to be deactivated; depending
+	 * on the status of p, and of its proxies, we can have several cases:
 	 *
-	 *   - it just blocked on a mutex;
-	 *   - it was executing the lock owner, but it was preempted;
+	 *   - p was executing in its original scheduling entity, it is
+	 *     preempted, but it has proxies;
+	 *   - p just blocked on a mutex;
+	 *   - p is a proxy that was executing the lock owner, it is preempted;
 	 *
-	 * in both cases we have to enqueue it back on the proxies rb_tree,
-	 * since the lock owner could have started executing on some other
-	 * CPU (in this case we probably have to consume p's busy_budget).
-	 * We also set the busy_runtime to be equal to p's runtime at this
-	 * instant of time.
+	 * in all these cases we have to enqueue p's scheduling entity back on
+	 * the proxies rb_tree, since the lock owner could start executing on
+	 * some other CPU (in this case we probably have to consume p's
+	 * busy_budget). We also set the busy_runtime to be equal to p's
+	 * runtime at this instant of time.
 	 */
-	if (task_is_proxying(p) && !p->dl.dl_throttled) {
+	if ((task_is_proxying(p) || task_has_proxies(p)) && !p->dl.dl_throttled) {
 		enqueue_proxy_dl_task(rq, p);
 		p->dl.busy_runtime = p->dl.runtime;
 	}	
@@ -1337,7 +1340,6 @@ static void put_prev_task_dl(struct rq *rq, struct task_struct *p)
 
 		deactivate_task(task_rq(proxy), proxy, 0);
 		proxy->on_rq = 0;
-		p->proxied_by = NULL;
 	}
 
 	/*

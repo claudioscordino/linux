@@ -3444,6 +3444,8 @@ void clear_proxy_execution(struct task_struct *task,
  * 		     proxy for task. Force a reschedule on proxy's CPU to
  *		     start executing task there.
  * @task: the task that is going to be actively proxied by the picked proxy.
+ *
+ * Called with IRQ disabled and rq->lock held by task.
  */
 void pick_task_proxy(struct task_struct *task)
 {
@@ -3458,6 +3460,12 @@ void pick_task_proxy(struct task_struct *task)
 		deactivate_task(task_rq(task), task, 0);
 		task->on_rq = 0;
 	}
+
+	/*
+	 * Reset this unconditionally; if it is set to !NULL below we
+	 * found a new proxy for task.
+	 */
+	task->proxied_by = NULL;
 		
 	/*
 	 * Search best server among task's proxies.
@@ -3488,31 +3496,34 @@ void pick_task_proxy(struct task_struct *task)
 		/*
 		 * We might have dropped orig_cpu lock.
 		 */
-		if (task_cpu(task) != orig_cpu || !task->on_rq)
+		if (task_cpu(task) != orig_cpu || task->on_rq)
 			goto skip;
 
 		if (orig_cpu != proxy->dl.cpu)
 			set_task_cpu(task, proxy->dl.cpu);
- 
-		if (!proxy->on_rq) {
-			activate_task(task_rq(proxy), proxy, 0);
-			proxy->on_rq = 1;
-		}
+
+		/*
+		 * Proxy could have just blocked. Wait for a schedule() on its
+		 * CPU to put it to sleep.
+		 */
+		while (proxy->on_rq)
+			cpu_relax();
+
+		activate_task(task_rq(proxy), proxy, 0);
+		proxy->on_rq = 1;
 skip:
 		if (orig_cpu != proxy->dl.cpu)
 			double_unlock_balance(cpu_rq(orig_cpu), cpu_rq(proxy->dl.cpu));
 	} else {
-		if (!task->on_rq) {
-			/*
-			 * Task used to execute inside a proxy.
-			 * Let it run back inside its original server.
-			 */
-			if (task_cpu(task) != task->dl.cpu)
-				set_task_cpu(task, task->dl.cpu);
+		/*
+		 * Task used to execute inside a proxy.
+		 * Let it run back inside its original server.
+		 */
+		if (task_cpu(task) != task->dl.cpu)
+			set_task_cpu(task, task->dl.cpu);
 
-			activate_task(task_rq(task), task, 0);
-			task->on_rq = 1;
-		}
+		activate_task(task_rq(task), task, 0);
+		task->on_rq = 1;
 	}
 }
 
