@@ -3375,7 +3375,7 @@ void set_proxy_execution(struct task_struct *task, struct task_struct *proxy)
 	proxy->proxying_for = task;
 	actual_proxied = get_proxying(task);
 
-	raw_spin_lock(&actual_proxied->pi_lock);
+	raw_spin_lock_nested(&actual_proxied->pi_lock, SINGLE_DEPTH_NESTING);
 
 	/*
 	 * proxy, and all its proxies, have to be new proxies for the head
