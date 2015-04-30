@@ -1080,6 +1080,8 @@ struct task_struct {
 	 */
 };
 
+unsigned long capacity_curr_of(int cpu);
+
 static inline struct pid *task_pid(struct task_struct *task)
 {
 	return task->pids[PIDTYPE_PID].pid;
