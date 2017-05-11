@@ -25,7 +25,7 @@ void store_cpu_topology(unsigned int cpuid);
 const struct cpumask *cpu_coregroup_mask(int cpu);
 
 #ifdef CONFIG_CPU_FREQ
-#include <linux/cpufreq.h>
+extern unsigned long cpufreq_scale_freq_capacity(int cpu);
 #define arch_scale_freq_capacity cpufreq_scale_freq_capacity
 #endif
 struct sched_domain;
