@@ -17,6 +17,7 @@
 #include "sched.h"
 
 #include <linux/slab.h>
+#include <trace/events/sched.h>
 #include <uapi/linux/sched/types.h>
 
 struct dl_bandwidth def_dl_bandwidth;
@@ -85,6 +86,7 @@ void add_running_bw(u64 dl_bw, struct dl_rq *dl_rq)
 	dl_rq->running_bw += dl_bw;
 	SCHED_WARN_ON(dl_rq->running_bw < old); /* overflow */
 	SCHED_WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
+	trace_sched_dl_grub(dl_rq->this_bw, dl_rq->running_bw, rq_of_dl_rq(dl_rq)->cpu);
 	/* kick cpufreq (see the comment in kernel/sched/sched.h). */
 	cpufreq_update_this_cpu(rq_of_dl_rq(dl_rq), SCHED_CPUFREQ_DL);
 }
@@ -99,6 +101,7 @@ void sub_running_bw(u64 dl_bw, struct dl_rq *dl_rq)
 	SCHED_WARN_ON(dl_rq->running_bw > old); /* underflow */
 	if (dl_rq->running_bw > old)
 		dl_rq->running_bw = 0;
+	trace_sched_dl_grub(dl_rq->this_bw, dl_rq->running_bw, rq_of_dl_rq(dl_rq)->cpu);
 	/* kick cpufreq (see the comment in kernel/sched/sched.h). */
 	cpufreq_update_this_cpu(rq_of_dl_rq(dl_rq), SCHED_CPUFREQ_DL);
 }
@@ -111,6 +114,8 @@ void add_rq_bw(u64 dl_bw, struct dl_rq *dl_rq)
 	lockdep_assert_held(&(rq_of_dl_rq(dl_rq))->lock);
 	dl_rq->this_bw += dl_bw;
 	SCHED_WARN_ON(dl_rq->this_bw < old); /* overflow */
+	trace_sched_dl_grub(dl_rq->this_bw, dl_rq->running_bw, rq_of_dl_rq(dl_rq)->cpu);
+
 }
 
 static inline
@@ -124,6 +129,8 @@ void sub_rq_bw(u64 dl_bw, struct dl_rq *dl_rq)
 	if (dl_rq->this_bw > old)
 		dl_rq->this_bw = 0;
 	SCHED_WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
+	trace_sched_dl_grub(dl_rq->this_bw, dl_rq->running_bw, rq_of_dl_rq(dl_rq)->cpu);
+
 }
 
 void dl_change_utilization(struct task_struct *p, u64 new_bw)
