@@ -17,6 +17,7 @@
 #include "sched.h"
 
 #include <linux/slab.h>
+#include <trace/events/sched.h>
 #include <uapi/linux/sched/types.h>
 
 struct dl_bandwidth def_dl_bandwidth;
@@ -29,6 +30,15 @@ static inline struct task_struct *dl_task_of(struct sched_dl_entity *dl_se)
 static inline struct rq *rq_of_dl_rq(struct dl_rq *dl_rq)
 {
 	return container_of(dl_rq, struct rq, dl);
+}
+
+static inline void trace_bw(struct dl_rq *dl_rq)
+{
+	unsigned int cpu = 0;
+#ifdef CONFIG_SMP
+	cpu = rq_of_dl_rq(dl_rq)->cpu;
+#endif
+	trace_sched_dl_bw(dl_rq->running_bw, cpu);
 }
 
 static inline struct dl_rq *dl_rq_of_se(struct sched_dl_entity *dl_se)
@@ -85,6 +95,7 @@ void add_running_bw(u64 dl_bw, struct dl_rq *dl_rq)
 	dl_rq->running_bw += dl_bw;
 	SCHED_WARN_ON(dl_rq->running_bw < old); /* overflow */
 	SCHED_WARN_ON(dl_rq->running_bw > dl_rq->this_bw);
+	trace_bw(dl_rq);
 }
 
 static inline
@@ -97,6 +108,7 @@ void sub_running_bw(u64 dl_bw, struct dl_rq *dl_rq)
 	SCHED_WARN_ON(dl_rq->running_bw > old); /* underflow */
 	if (dl_rq->running_bw > old)
 		dl_rq->running_bw = 0;
+	trace_bw(dl_rq);
 }
 
 static inline

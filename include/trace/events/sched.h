@@ -545,6 +545,35 @@ TRACE_EVENT(sched_swap_numa,
 			__entry->dst_cpu, __entry->dst_nid)
 );
 
+DECLARE_EVENT_CLASS(sched_dl_bw_template,
+
+	TP_PROTO(u64 bw, unsigned int cpu_id),
+
+	TP_ARGS(bw, cpu_id),
+
+	TP_STRUCT__entry(
+		__field(u64,		bw)
+		__field(u32,		cpu_id)
+	),
+
+	TP_fast_assign(
+		__entry->bw = bw;
+		__entry->cpu_id = cpu_id;
+	),
+
+	TP_printk("bw=%llu cpu_id=%lu",
+		(unsigned long long)__entry->bw,
+		(unsigned long)__entry->cpu_id)
+);
+
+
+DEFINE_EVENT(sched_dl_bw_template, sched_dl_bw,
+
+	TP_PROTO(u64 bw, unsigned int cpu_id),
+
+	TP_ARGS(bw, cpu_id)
+);
+
 /*
  * Tracepoint for waking a polling cpu without an IPI.
  */
