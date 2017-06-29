@@ -616,7 +616,8 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 	 * but do not enqueue -- wait for our wakeup to do that.
 	 */
 	if (!task_on_rq_queued(p)) {
-		replenish_dl_entity(dl_se, dl_se);
+		/*replenish_dl_entity(dl_se, dl_se);*/
+		replenish_dl_entity(dl_se);
 		goto unlock;
 	}
 
