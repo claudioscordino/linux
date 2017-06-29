@@ -3432,8 +3432,12 @@ void pick_task_proxy(struct task_struct *task)
 	 * CPU, otherwise we wait for the next scheduling event (since proxy
 	 * wouldn't be scheduled anyway).
 	 */
-	if (task_running(task_rq(proxy), proxy))
+	if (task_running(task_rq(proxy), proxy)) {
+/*
 		resched_task(proxy);
+*/
+		resched_curr(task_rq(proxy));
+	}
 }
 
 /*
