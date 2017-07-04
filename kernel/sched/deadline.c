@@ -1033,6 +1033,9 @@ static inline bool dl_is_constrained(struct sched_dl_entity *dl_se)
 
 static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
+	struct task_struct *task = get_proxied_task(p);
+	struct sched_dl_entity *dl_se = &task->dl;
+
 	/*
 	 * If p is being proxied we use the scheduling parameters of the
 	 * proxy, IOW we enqueue proxy's scheduling entity on dl_rq. OTW
@@ -1058,9 +1061,6 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 	 */
 	if (!p->dl.dl_throttled && dl_is_constrained(&p->dl))
 		dl_check_constrained_dl(&p->dl);
-
-	struct task_struct *task = get_proxied_task(p);
-	struct sched_dl_entity *dl_se = &task->dl;
 
 	/*
 	 * MBWI
