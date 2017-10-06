@@ -25,6 +25,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/sched/clock.h>
 #include <linux/slab.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
@@ -1008,6 +1009,81 @@ __weak struct cpufreq_governor *cpufreq_default_governor(void)
 	return NULL;
 }
 
+static int find_dvfs_latency(struct cpufreq_policy *policy, unsigned long freq,
+			     unsigned int *latency_ns)
+{
+	u64 time;
+	int ret;
+
+	time = local_clock();
+	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_L);
+	*latency_ns = local_clock() - time;
+
+	return ret;
+}
+
+/*
+ * Find the transition latency dynamically by:
+ * - Switching to min freq first.
+ * - Then switching to max freq.
+ * - And finally switching back to the initial freq.
+ *
+ * The maximum duration of the above three freq changes should be good enough to
+ * find the maximum transition latency for a platform.
+ */
+static void cpufreq_find_target_latency(struct cpufreq_policy *policy)
+{
+	unsigned long initial_freq = policy->cur;
+	unsigned int latency_ns, latency_max_ns;
+	int ret;
+	printk(KERN_ERR "Finding DVFS latency...\n");
+
+	if (!has_target()){
+		printk(KERN_ERR "DVFS: !target\n");
+		return;
+	}
+
+#if 0
+
+	/* Limit to drivers with latency set to CPUFREQ_ETERNAL for now */
+	if (policy->cpuinfo.transition_latency != CPUFREQ_ETERNAL){
+		printk(KERN_ERR "DVFS: !ETERNAL\n");
+		return;
+	}
+
+#endif
+
+	/* Go to min frequency first */
+	ret = find_dvfs_latency(policy, policy->cpuinfo.min_freq, &latency_ns);
+	if (ret){
+		printk(KERN_ERR "DVFS: !ret 1\n");
+		return;
+	}
+
+	latency_max_ns = latency_ns;
+
+	/* Go to max frequency then.. */
+	ret = find_dvfs_latency(policy, policy->cpuinfo.max_freq, &latency_ns);
+	if (ret){
+		printk(KERN_ERR "DVFS: !ret 2\n");
+		return;
+	}
+
+	latency_max_ns = max(latency_max_ns, latency_ns);
+
+	/* And finally switch back to where we started from */
+	ret = find_dvfs_latency(policy, initial_freq, &latency_ns);
+	if (ret){
+		printk(KERN_ERR "DVFS: !ret 3\n");
+		return;
+	}
+
+	policy->cpuinfo.transition_latency = max(latency_max_ns, latency_ns);
+
+	printk(KERN_ERR "%s: Setting DVFS latency to %u ns for policy of CPU%d\n",
+		__func__, policy->cpuinfo.transition_latency, policy->cpu);
+}
+
 static int cpufreq_init_policy(struct cpufreq_policy *policy)
 {
 	struct cpufreq_governor *gov = NULL;
@@ -1277,6 +1353,8 @@ static int cpufreq_online(unsigned int cpu)
 	}
 
 	if (new_policy) {
+		cpufreq_find_target_latency(policy);
+
 		ret = cpufreq_add_dev_interface(policy);
 		if (ret)
 			goto out_exit_policy;
