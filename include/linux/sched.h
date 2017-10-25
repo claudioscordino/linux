@@ -821,10 +821,8 @@ struct task_struct {
 	struct rt_mutex_waiter		*pi_blocked_on;
 #endif
 
-#ifdef CONFIG_DEBUG_MUTEXES
-	/* Mutex deadlock detection: */
-	struct mutex_waiter		*blocked_on;
-#endif
+	struct task_struct 	*blocked_task;	/* task that's boosting us */
+	struct mutex 		*blocked_on;	/* lock we're blocked on */
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned int			irq_events;
