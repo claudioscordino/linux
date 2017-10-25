@@ -823,6 +823,8 @@ struct task_struct {
 
 	struct task_struct 	*blocked_task;	/* task that's boosting us */
 	struct mutex 		*blocked_on;	/* lock we're blocked on */
+	struct list_head 	blocked_entry;	/* tasks blocked on us */
+	raw_spinlock_t		blocked_lock;
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned int			irq_events;

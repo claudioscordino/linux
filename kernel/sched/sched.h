@@ -1287,6 +1287,21 @@ static inline int task_current_proxy(struct rq *rq, struct task_struct *p)
 	return rq->proxy == p;
 }
 
+#ifdef CONFIG_PROXY_EXEC
+/* XXX name sucks */
+static inline bool task_is_blocked(struct task_struct *p)
+{
+	return !!p->blocked_on;
+}
+
+#else /* PROXY_EXEC */
+
+static inline bool task_is_blocked(struct task_struct *p)
+{
+	return false;
+}
+#endif /* PROXY_EXEC */
+
 static inline int task_running(struct rq *rq, struct task_struct *p)
 {
 #ifdef CONFIG_SMP

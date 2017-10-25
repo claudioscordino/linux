@@ -274,6 +274,7 @@ extern struct cred init_cred;
 	.journal_info	= NULL,						\
 	INIT_CPU_TIMERS(tsk)						\
 	.pi_lock	= __RAW_SPIN_LOCK_UNLOCKED(tsk.pi_lock),	\
+	.blocked_lock	= __RAW_SPIN_LOCK_UNLOCKED(tsk.blocked_lock),	\
 	.timer_slack_ns = 50000, /* 50 usec default slack */		\
 	.pids = {							\
 		[PIDTYPE_PID]  = INIT_PID_LINK(PIDTYPE_PID),		\
