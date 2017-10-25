@@ -300,7 +300,7 @@ __ww_ctx_stamp_after(struct ww_acquire_ctx *a, struct ww_acquire_ctx *b)
  * The current task must not be on the wait list.
  */
 static void __sched
-__ww_mutex_wakeup_for_backoff(struct mutex *lock, struct ww_acquire_ctx *ww_ctx)
+__ww_mutex_wakeup_for_backoff(struct mutex *lock, struct ww_acquire_ctx *ww_ctx, struct wake_q_head *wake_q)
 {
 	struct mutex_waiter *cur;
 
@@ -313,7 +313,7 @@ __ww_mutex_wakeup_for_backoff(struct mutex *lock, struct ww_acquire_ctx *ww_ctx)
 		if (cur->ww_ctx->acquired > 0 &&
 		    __ww_ctx_stamp_after(cur->ww_ctx, ww_ctx)) {
 			debug_mutex_wake_waiter(lock, cur);
-			wake_up_process(cur->task);
+			wake_q_add(wake_q, cur->task);
 		}
 
 		break;
@@ -327,6 +327,8 @@ __ww_mutex_wakeup_for_backoff(struct mutex *lock, struct ww_acquire_ctx *ww_ctx)
 static __always_inline void
 ww_mutex_set_context_fastpath(struct ww_mutex *lock, struct ww_acquire_ctx *ctx)
 {
+	DEFINE_WAKE_Q(wake_q);
+
 	ww_mutex_lock_acquired(lock, ctx);
 
 	lock->ctx = ctx;
@@ -351,8 +353,10 @@ ww_mutex_set_context_fastpath(struct ww_mutex *lock, struct ww_acquire_ctx *ctx)
 	 * so they can see the new lock->ctx.
 	 */
 	raw_spin_lock(&lock->base.wait_lock);
-	__ww_mutex_wakeup_for_backoff(&lock->base, ctx);
+	__ww_mutex_wakeup_for_backoff(&lock->base, ctx, &wake_q);
 	raw_spin_unlock(&lock->base.wait_lock);
+
+	wake_up_q(&wake_q);
 }
 
 /*
@@ -679,7 +683,8 @@ deadlock:
 static inline int __sched
 __ww_mutex_add_waiter(struct mutex_waiter *waiter,
 		      struct mutex *lock,
-		      struct ww_acquire_ctx *ww_ctx)
+		      struct ww_acquire_ctx *ww_ctx,
+		      struct wake_q_head *wake_q)
 {
 	struct mutex_waiter *cur;
 	struct list_head *pos;
@@ -723,7 +728,7 @@ __ww_mutex_add_waiter(struct mutex_waiter *waiter,
 		 */
 		if (cur->ww_ctx->acquired > 0) {
 			debug_mutex_wake_waiter(lock, cur);
-			wake_up_process(cur->task);
+			wake_q_add(wake_q, cur->task); // XXX
 		}
 	}
 
@@ -739,6 +744,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		    struct lockdep_map *nest_lock, unsigned long ip,
 		    struct ww_acquire_ctx *ww_ctx, const bool use_ww_ctx)
 {
+	DEFINE_WAKE_Q(wake_q);
 	struct mutex_waiter waiter;
 	bool first = false;
 	struct ww_mutex *ww;
@@ -771,7 +777,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 	 */
 	if (__mutex_trylock(lock)) {
 		if (use_ww_ctx && ww_ctx)
-			__ww_mutex_wakeup_for_backoff(lock, ww_ctx);
+			__ww_mutex_wakeup_for_backoff(lock, ww_ctx, &wake_q);
 
 		goto skip_wait;
 	}
@@ -790,7 +796,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 #endif
 	} else {
 		/* Add in stamp order, waking up waiters that must back off. */
-		ret = __ww_mutex_add_waiter(&waiter, lock, ww_ctx);
+		ret = __ww_mutex_add_waiter(&waiter, lock, ww_ctx, &wake_q);
 		if (ret)
 			goto err_early_backoff;
 
@@ -872,6 +878,7 @@ skip_wait:
 		ww_mutex_set_context_slowpath(ww, ww_ctx);
 
 	raw_spin_unlock(&lock->wait_lock);
+	wake_up_q(&wake_q);
 	preempt_enable();
 	return 0;
 
@@ -1065,9 +1072,11 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 	if (owner & MUTEX_FLAG_HANDOFF)
 		__mutex_handoff(lock, next);
 
+	preempt_disable(); // XXX unlock->wakeup inversion like
 	raw_spin_unlock(&lock->wait_lock);
 
-	wake_up_q(&wake_q);
+	wake_up_q(&wake_q); // XXX must force resched on proxy
+	preempt_enable();
 }
 
 #ifndef CONFIG_DEBUG_LOCK_ALLOC
