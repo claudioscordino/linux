@@ -9386,7 +9386,7 @@ static void task_tick_fair(struct rq *rq, struct task_struct *curr, int queued)
 	}
 
 	if (static_branch_unlikely(&sched_numa_balancing))
-		task_tick_numa(rq, curr);
+		task_tick_numa(rq, rq->curr); /* XXX execution context */
 }
 
 /*
