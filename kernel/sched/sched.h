@@ -881,6 +881,7 @@ static inline u64 __rq_clock_broken(struct rq *rq)
 
 static inline void assert_clock_updated(struct rq *rq)
 {
+	WARN_ON(rq == NULL);
 	/*
 	 * The only reason for not seeing a clock update since the
 	 * last rq_pin_lock() is if we're currently skipping updates.

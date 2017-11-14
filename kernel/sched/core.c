@@ -3345,6 +3345,7 @@ again:
 static struct task_struct *
 proxy(struct rq *rq, struct task_struct *next, struct rq_flags *rf)
 {
+	printk("Entering proxy... %d\n", 0);
 	struct task_struct *p = next;
 	struct task_struct *owner;
 	struct mutex *mutex;
@@ -3361,6 +3362,9 @@ proxy(struct rq *rq, struct task_struct *next, struct rq_flags *rf)
 	 */
 	for (p = next; p->blocked_on; p = owner) {
 		mutex = p->blocked_on;
+		printk("New iteration for mutex %p...\n", mutex);
+
+		BUG_ON(mutex == NULL);
 
 		/*
 		 * By waking mutex->wait_lock we hold off concurrent mutex_unlock()
@@ -3368,16 +3372,24 @@ proxy(struct rq *rq, struct task_struct *next, struct rq_flags *rf)
 		 */
 		raw_spin_lock(&mutex->wait_lock);
 		owner = __mutex_owner(mutex);
+		BUG_ON(owner == NULL);
 retry_owner:
-		if (task_cpu(owner) != this_cpu)
+		if (task_cpu(owner) != this_cpu){
+			printk("goto migrate_task... %d\n", 0);
 			goto migrate_task;
+		}
 
-		if (owner == p)
+		if (owner == p){
+			printk("goto owned_task... %d\n", 0);
 			goto owned_task;
+		}
 
-		if (!owner->on_rq)
+		if (!owner->on_rq) {
+			printk("goto blocked_task... %d\n", 0);
 			goto blocked_task;
+		}
 
+		printk("no goto... %d\n", 0);
 		/*
 		 * OK, now we're absolutely sure @owner is blocked _and_ on
 		 * this rq, therefore holding @rq->lock is sufficient to
@@ -3415,6 +3427,7 @@ migrate_task:
 	 */
 	that_cpu = task_cpu(owner);
 	that_rq = cpu_rq(that_cpu);
+	BUG_ON(that_rq == NULL);
 	/*
 	 * @owner can disappear, simply migrate to @that_cpu and leave that CPU
 	 * to sort things out.

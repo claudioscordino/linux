@@ -43,6 +43,7 @@ void
 __mutex_init(struct mutex *lock, const char *name, struct lock_class_key *key)
 {
 	atomic_long_set(&lock->owner, 0);
+/* 	printk("__mutex_init: owner of mutex %p to NULL\n", lock); */
 	raw_spin_lock_init(&lock->wait_lock);
 	INIT_LIST_HEAD(&lock->wait_list);
 #ifdef CONFIG_MUTEX_SPIN_ON_OWNER
@@ -73,6 +74,13 @@ static inline struct task_struct *__owner_task(unsigned long owner)
 	return (struct task_struct *)(owner & ~MUTEX_FLAGS);
 }
 
+static inline void print_owner(char *string, struct mutex *lock)
+{
+	unsigned long owner = atomic_long_read(&lock->owner);
+	printk("%s: owner of %p set to %p\n",
+			string, lock, __owner_task(owner));
+}
+
 static inline unsigned long __owner_flags(unsigned long owner)
 {
 	return owner & MUTEX_FLAGS;
@@ -84,6 +92,7 @@ static inline unsigned long __owner_flags(unsigned long owner)
 static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 {
 	unsigned long owner, curr = (unsigned long)current;
+	WARN_ON(curr == 0);
 
 	owner = atomic_long_read(&lock->owner);
 	for (;;) { /* must loop, can race against a flag */
@@ -112,11 +121,14 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 		flags &= ~MUTEX_FLAG_HANDOFF;
 
 		old = atomic_long_cmpxchg_acquire(&lock->owner, owner, curr | flags);
-		if (old == owner)
+		if (old == owner){
+			print_owner("trylock_or_owner 1\0", lock);
 			return NULL;
+		}
 
 		owner = old;
 	}
+	print_owner("trylock_or_owner 2\0", lock);
 
 	return __owner_task(owner);
 }
@@ -144,8 +156,11 @@ static __always_inline bool __mutex_trylock_fast(struct mutex *lock)
 {
 	unsigned long curr = (unsigned long)current;
 
-	if (!atomic_long_cmpxchg_acquire(&lock->owner, 0UL, curr))
+	if (!atomic_long_cmpxchg_acquire(&lock->owner, 0UL, curr)){
+		print_owner("trylock_fast 1\0", lock);
 		return true;
+	}
+	print_owner("trylock_fast 2\0", lock);
 
 	return false;
 }
@@ -154,8 +169,11 @@ static __always_inline bool __mutex_unlock_fast(struct mutex *lock)
 {
 	unsigned long curr = (unsigned long)current;
 
-	if (atomic_long_cmpxchg_release(&lock->owner, curr, 0UL) == curr)
+	if (atomic_long_cmpxchg_release(&lock->owner, curr, 0UL) == curr){
+		print_owner("unlock_fast 1\0", lock);
 		return true;
+	}
+	print_owner("unlock_fast 2\0", lock);
 
 	return false;
 }
@@ -205,6 +223,7 @@ static void __mutex_handoff(struct mutex *lock, struct task_struct *task)
 
 		owner = old;
 	}
+	print_owner("__mutex_handoff\0", lock);
 }
 
 #ifndef CONFIG_DEBUG_LOCK_ALLOC
@@ -758,8 +777,10 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 
 	ww = container_of(lock, struct ww_mutex, base);
 	if (use_ww_ctx && ww_ctx) {
-		if (unlikely(ww_ctx == READ_ONCE(ww->ctx)))
+		if (unlikely(ww_ctx == READ_ONCE(ww->ctx))){
+			WARN_ON(__mutex_owner(lock) == NULL);
 			return -EALREADY;
+		}
 	}
 
 	preempt_disable();
@@ -772,6 +793,7 @@ __mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
 		if (use_ww_ctx && ww_ctx)
 			ww_mutex_set_context_fastpath(ww, ww_ctx);
 		preempt_enable();
+		WARN_ON(__mutex_owner(lock) == NULL);
 		return 0;
 	}
 
@@ -888,6 +910,7 @@ skip_wait:
 	raw_spin_unlock(&lock->wait_lock);
 	wake_up_q(&wake_q);
 	preempt_enable();
+	WARN_ON(__mutex_owner(lock) == NULL);
 	return 0;
 
 err:
@@ -1049,6 +1072,8 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 	for (;;) {
 		unsigned long old;
 
+		WARN_ON(__owner_task(owner) != current);
+		WARN_ON(__owner_task(owner) == NULL);
 #ifdef CONFIG_DEBUG_MUTEXES
 		DEBUG_LOCKS_WARN_ON(__owner_task(owner) != current);
 		DEBUG_LOCKS_WARN_ON(owner & MUTEX_FLAG_PICKUP);
@@ -1062,6 +1087,9 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 		if (old == owner) {
 			if (owner & MUTEX_FLAG_WAITERS)
 				break;
+
+			WARN_ON(__mutex_owner(lock) == NULL);
+			print_owner("unlock_slowpath 1\0", lock);
 
 			return;
 		}
@@ -1082,6 +1110,13 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 	 * XXX existance guarantee on ->blocked_task ?
 	 */
 	next = current->blocked_task;
+	if (next == NULL)
+		printk("%p: 1\n", lock);
+	else if ((next != NULL) && (next->blocked_on == lock))
+		printk("%p: 2\n", lock);
+	else
+		printk("%p: 3\n", lock);
+
 	if (next && next->blocked_on != lock)
 		next = NULL;
 
@@ -1100,11 +1135,14 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 		struct mutex_waiter *waiter =
 			list_first_entry(&lock->wait_list,
 					 struct mutex_waiter, list);
+		printk("waitlist !empty for mutex %p\n", lock);
 
 		next = waiter->task;
 
 		debug_mutex_wake_waiter(lock, waiter);
 		wake_q_add(&wake_q, next);
+	} else {
+		printk("waitlist empty for mutex %p\n", lock);
 	}
 
 	if (owner & MUTEX_FLAG_HANDOFF)
@@ -1115,6 +1153,7 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 
 	wake_up_q(&wake_q); // XXX must force resched on proxy
 	preempt_enable();
+	print_owner("unlock_slowpath 2\0", lock);
 }
 
 #ifndef CONFIG_DEBUG_LOCK_ALLOC

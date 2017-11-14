@@ -300,9 +300,9 @@ HOST_LFS_LIBS := $(shell getconf LFS_LIBS)
 
 HOSTCC       = gcc
 HOSTCXX      = g++
-HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 \
-		-fomit-frame-pointer -std=gnu89 $(HOST_LFS_CFLAGS)
-HOSTCXXFLAGS := -O2 $(HOST_LFS_CFLAGS)
+HOSTCFLAGS   := -Wall -Wmissing-prototypes -Wstrict-prototypes -O1 \
+		-fomit-frame-pointer -std=gnu89 $(HOST_LFS_CFLAGS) -fno-inline
+HOSTCXXFLAGS := -O1 $(HOST_LFS_CFLAGS) -fno-inline
 HOSTLDFLAGS  := $(HOST_LFS_LDFLAGS)
 HOST_LOADLIBES := $(HOST_LFS_LIBS)
 
@@ -639,9 +639,9 @@ KBUILD_CFLAGS	+= $(call cc-option,-Oz,-Os)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,maybe-uninitialized,)
 else
 ifdef CONFIG_PROFILE_ALL_BRANCHES
-KBUILD_CFLAGS	+= -O2 $(call cc-disable-warning,maybe-uninitialized,)
+KBUILD_CFLAGS	+= -O1 $(call cc-disable-warning,maybe-uninitialized,) -fno-inline
 else
-KBUILD_CFLAGS   += -O2
+KBUILD_CFLAGS   += -O1 -fno-inline
 endif
 endif
 
