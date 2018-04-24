@@ -41,6 +41,7 @@ struct sugov_policy {
 	bool			work_in_progress;
 
 	bool			need_freq_update;
+	bool			urgent_freq_update;
 };
 
 struct sugov_cpu {
@@ -92,6 +93,14 @@ static bool sugov_should_update_freq(struct sugov_policy *sg_policy, u64 time)
 	    !cpufreq_can_do_remote_dvfs(sg_policy->policy))
 		return false;
 
+	/*
+	 * Continue computing the new frequency. In case of work_in_progress,
+	 * the kthread will resched a change once the current transition is
+	 * finished.
+	 */
+	if (sg_policy->urgent_freq_update)
+		return true;
+
 	if (sg_policy->work_in_progress)
 		return false;
 
@@ -120,6 +129,9 @@ static void sugov_update_commit(struct sugov_policy *sg_policy, u64 time,
 
 	sg_policy->next_freq = next_freq;
 	sg_policy->last_freq_update_time = time;
+
+	if (sg_policy->work_in_progress)
+		return;
 
 	if (policy->fast_switch_enabled) {
 		next_freq = cpufreq_driver_fast_switch(policy, next_freq);
@@ -274,7 +286,7 @@ static inline bool sugov_cpu_is_busy(struct sugov_cpu *sg_cpu) { return false; }
 static inline void ignore_dl_rate_limit(struct sugov_cpu *sg_cpu, struct sugov_policy *sg_policy)
 {
 	if (cpu_util_dl(cpu_rq(sg_cpu->cpu)) > sg_cpu->util_dl)
-		sg_policy->need_freq_update = true;
+		sg_policy->urgent_freq_update = true;
 }
 
 static void sugov_update_single(struct update_util_data *hook, u64 time,
@@ -383,8 +395,11 @@ static void sugov_work(struct kthread_work *work)
 	struct sugov_policy *sg_policy = container_of(work, struct sugov_policy, work);
 
 	mutex_lock(&sg_policy->work_lock);
-	__cpufreq_driver_target(sg_policy->policy, sg_policy->next_freq,
+	do {
+		sg_policy->urgent_freq_update = false;
+		__cpufreq_driver_target(sg_policy->policy, sg_policy->next_freq,
 				CPUFREQ_RELATION_L);
+	} while (sg_policy->urgent_freq_update);
 	mutex_unlock(&sg_policy->work_lock);
 
 	sg_policy->work_in_progress = false;
@@ -673,6 +688,7 @@ static int sugov_start(struct cpufreq_policy *policy)
 	sg_policy->next_freq			= UINT_MAX;
 	sg_policy->work_in_progress		= false;
 	sg_policy->need_freq_update		= false;
+	sg_policy->urgent_freq_update		= false;
 	sg_policy->cached_raw_freq		= 0;
 
 	for_each_cpu(cpu, policy->cpus) {
