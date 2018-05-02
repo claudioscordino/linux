@@ -796,7 +796,7 @@ static inline void check_dl_overrun(struct task_struct *tsk)
 {
 	if (tsk->dl.dl_overrun) {
 		tsk->dl.dl_overrun = 0;
-		__group_send_sig_info(SIGXCPU, SEND_SIG_PRIV, tsk);
+		specific_send_sig_info(SIGXCPU, SEND_SIG_PRIV, tsk);
 	}
 }
 
@@ -918,8 +918,8 @@ static void check_process_timers(struct task_struct *tsk,
 	struct task_cputime cputime;
 	unsigned long soft;
 
-	if (dl_task(tsk))
-		check_dl_overrun(tsk);
+/* 	if (dl_task(tsk)) */
+/* 		check_dl_overrun(tsk); */
 
 	/*
 	 * If cputimer is not running, then there are no active
